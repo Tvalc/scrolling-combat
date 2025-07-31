@@ -58,6 +58,7 @@ window.Game = class Game {
     this.level = 0;
     this.stage = 0;
     this.wave = 0;
+    // Place player so the bottom of the sprite is flush with the bottom of the background
     this.player = new window.Player(60, window.FLOOR_Y - window.PLAYER_HEIGHT);
     this.enemies = [];
     this.powerups = [];
@@ -185,9 +186,7 @@ window.Game = class Game {
     for (let pow of this.powerups) {
       pow.update(dt);
     }
-    for (let part of this.particles) {
-      part.update(dt);
-    }
+    for (let part of this.particles) part.update(dt);
     // Remove dead particles
     this.particles = this.particles.filter(pt=>pt.life > 0);
     // Enemies die and maybe drop powerup
