@@ -12,7 +12,11 @@ window.PlayerJumpFrames = [
 });
 
 // == Attack Animation Preload ==
+// Add 3 new frames to the front, keep the rest of the attack frames after.
 window.PlayerAttackFrames = [
+  'https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Coop_Crouch_3_1754021059629.png',
+  'https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Coop_Crouch_5_1754021239410.png',
+  'https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Coop_Crouch_2_1754021030845.png',
   'https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Coop_Crouch_4_1754021076784.png',
   'https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Coop_Punch_2_1754021388739.png',
   'https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Coop_Kick_2_1754021214028.png'
@@ -63,6 +67,8 @@ window.Player = class Player {
     this.attackAnimFrame = 0;
     this.attackAnimTimer = 0;
     this.attackAnimSpeed = 0.18;
+    this.attackAnimLoop = 0; // NEW: Track how many times we've looped the attack animation
+    this.attackAnimLoopsTarget = 2; // NEW: Loop attack animation 2 times per attack
   }
 
   update(input, dt) {
@@ -94,6 +100,9 @@ window.Player = class Player {
       this.action = 'attack';
       this.attackTime = this.attackDuration;
       this.attackCooldown = 360;
+      this.attackAnimFrame = 0;
+      this.attackAnimTimer = 0;
+      this.attackAnimLoop = 0; // reset animation loops
     }
 
     // Gravity
@@ -120,7 +129,7 @@ window.Player = class Player {
     // === Jump Animation Frame Update ===
     if (!this.onGround) {
       this.jumpAnimTimer += dt;
-      if (this.jumpAnimTimer > 80) { // 80ms per frame
+      if (this.jumpAnimTimer > 580) { // SLOWER: 180ms per frame
         this.jumpAnimFrame = (this.jumpAnimFrame + 1) % window.PlayerJumpFrames.length;
         this.jumpAnimTimer = 0;
       }
@@ -129,16 +138,28 @@ window.Player = class Player {
       this.jumpAnimTimer = 0;
     }
 
-    // === Attack Animation Frame Update ===
+    // === Attack Animation Frame Update (LOOP TWICE) ===
     if (this.action === 'attack' && this.attackTime > 0) {
       this.attackAnimTimer += dt;
-      if (this.attackAnimTimer > 160) { // SLOW DOWN: was 80ms, now 160ms per frame
-        this.attackAnimFrame = (this.attackAnimFrame + 1) % window.PlayerAttackFrames.length;
+      if (this.attackAnimTimer > 580) { // SLOWER: 580ms per frame
+        this.attackAnimFrame++;
+        if (this.attackAnimFrame >= window.PlayerAttackFrames.length) {
+          this.attackAnimFrame = 0;
+          this.attackAnimLoop++;
+        }
+        // After 2 loops, end attack animation
+        if (this.attackAnimLoop >= this.attackAnimLoopsTarget) {
+          this.action = this.onGround ? 'idle' : 'jump';
+          this.attackAnimFrame = 0;
+          this.attackAnimLoop = 0;
+          this.attackTime = 0;
+        }
         this.attackAnimTimer = 0;
       }
     } else {
       this.attackAnimFrame = 0;
       this.attackAnimTimer = 0;
+      this.attackAnimLoop = 0;
     }
 
     // Attack cooldown
@@ -257,103 +278,122 @@ window.Player = class Player {
 };
 
 // == Enemy Entity ==
+
 window.Enemy = class Enemy {
   constructor(game, x, y) {
     this.game = game;
     this.x = x;
     this.y = y;
-    this.width = 54;
-    this.height = 54;
-    this.vx = (Math.random() < 0.5 ? -1 : 1) * (2.2 + Math.random() * 1.2);
-    this.vy = 0;
-    this.groundY = 392;
+    this.width = 52;
+    this.height = 78;
+    this.health = 60;
     this.alive = true;
-    this.health = 60 + Math.floor(game.level * 8) + Math.floor(game.stage * 6) + Math.floor(game.wave * 4);
-    this.damage = 22 + Math.floor(game.level * 2.5);
     this.dashing = false;
-    this.dashTime = 0;
+    this.damage = 24;
     this.dashCooldown = 0;
-    this.frame = Math.floor(Math.random() * window.SpriteLibrary.enemyFrames.length);
+    this.dashTime = 0;
+    this.dashSpeed = 9;
+    this.speed = 2.2;
+    this.attackRange = 48;
     this.frameTimer = 0;
-    this.frameSpeed = 0.18 + Math.random() * 0.08;
+    this.frameIdx = Math.floor(Math.random() * window.SpriteLibrary.enemyFrames.length);
+    this.colorIdx = Math.floor(Math.random() * window.SpriteLibrary.enemyFrames.length);
   }
 
   update(dt, player) {
     if (!this.alive) return;
 
-    // Dash logic
-    if (this.dashCooldown > 0) this.dashCooldown -= dt;
-    if (this.dashing) {
-      this.dashTime -= dt;
-      this.x += this.vx * 2.7;
-      if (this.dashTime <= 0) {
-        this.dashing = false;
-        this.dashCooldown = 900 + Math.random() * 700;
-      }
-    } else {
-      // Move toward player
+    // Dash logic: randomly dash at player if cooldown allows
+    if (!this.dashing && this.dashCooldown <= 0 && Math.random() < 0.008) {
       let dx = player.x - this.x;
-      if (Math.abs(dx) > 8) {
-        this.x += Math.sign(dx) * (1.2 + Math.random() * 0.7);
-      }
-      // Random dash
-      if (this.dashCooldown <= 0 && Math.abs(dx) < 220 && Math.random() < 0.018) {
+      let dy = player.y - this.y;
+      let dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 320 && Math.abs(dy) < 60) {
         this.dashing = true;
-        this.dashTime = 260 + Math.random() * 120;
-        this.vx = Math.sign(dx) * (3.8 + Math.random() * 1.2);
+        this.dashTime = 18 + Math.floor(Math.random() * 8);
+        this.dashDir = dx > 0 ? 1 : -1;
       }
     }
 
-    // Gravity
-    if (this.y < this.groundY) {
-      this.vy += 0.38;
-      this.y += this.vy;
-      if (this.y > this.groundY) {
-        this.y = this.groundY;
-        this.vy = 0;
-      }
-    }
-
-    // Clamp position
-    this.x = window.Utils.clamp(this.x, 0, this.game.width - this.width);
-
-    // Animation frame
-    this.frameTimer += this.frameSpeed;
-    if (this.frameTimer >= window.SpriteLibrary.enemyFrames.length) this.frameTimer = 0;
-    this.frame = Math.floor(this.frameTimer);
-
-    // Dash collision with player
-    if (this.dashing && !player.invincible && !player.dead) {
+    if (this.dashing) {
+      this.x += this.dashDir * this.dashSpeed;
+      this.dashTime--;
+      // Dash collision check with player
       let dx = (this.x + this.width / 2) - (player.x + player.width / 2);
       let dy = (this.y + this.height / 2) - (player.y + player.height / 2);
       let dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 44) {
-        player.takeDamage(this.damage + 12);
+      if (dist < 44 && !player.invincible) {
+        player.takeDamage(this.damage + 16);
+        this.x += this.dashDir * 44;
         this.dashing = false;
-        this.dashCooldown = 1200 + Math.random() * 600;
+        this.dashCooldown = 800 + Math.random() * 700;
       }
+      if (this.dashTime <= 0) {
+        this.dashing = false;
+        this.dashCooldown = 800 + Math.random() * 700;
+      }
+    } else {
+      // Move towards player if not dashing
+      let dx = player.x - this.x;
+      let dy = player.y - this.y;
+      if (Math.abs(dx) > 12) {
+        this.x += Math.sign(dx) * this.speed;
+      }
+      // Optional: vertical movement (keep on ground)
+      if (Math.abs(dy) > 14) {
+        this.y += Math.sign(dy) * (this.speed * 0.66);
+      }
+      if (this.dashCooldown > 0) {
+        this.dashCooldown -= dt;
+      }
+    }
+
+    // Clamp inside screen
+    this.x = window.Utils.clamp(this.x, 0, this.game.width - this.width);
+    this.y = window.Utils.clamp(this.y, 0, this.game.height - this.height);
+
+    // Animation frame update
+    this.frameTimer += dt;
+    if (this.frameTimer > 110) {
+      this.frameIdx = (this.frameIdx + 1) % window.SpriteLibrary.enemyFrames.length;
+      this.frameTimer = 0;
     }
   }
 
   render(ctx) {
-    if (!this.alive) return;
-    window.SpriteLibrary.enemyFrames[this.frame](ctx, this.x, this.y, this.width, this.height, this.frame);
+    // Example: use enemy sprite frame
+    let frameIdx = this.frameIdx;
+    window.SpriteLibrary.enemyFrames[frameIdx](ctx, this.x, this.y, this.width, this.height, frameIdx);
+    // Dashing effect
+    if (this.dashing) {
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.beginPath();
+      ctx.ellipse(this.x + this.width / 2, this.y + this.height * 0.7, this.width * 0.7, this.height * 0.27, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffe066';
+      ctx.shadowColor = '#fff';
+      ctx.shadowBlur = 14;
+      ctx.fill();
+      ctx.restore();
+    }
     // Health bar
-    ctx.save();
-    ctx.globalAlpha = 0.7;
-    ctx.fillStyle = "#f44";
-    ctx.fillRect(this.x + 6, this.y + this.height - 8, this.width - 12, 6);
-    ctx.fillStyle = "#8f8";
-    ctx.fillRect(this.x + 6, this.y + this.height - 8, (this.width - 12) * (this.health / 100), 6);
-    ctx.restore();
+    if (this.alive && this.health < 60) {
+      ctx.save();
+      ctx.fillStyle = '#222';
+      ctx.fillRect(this.x + 6, this.y - 12, this.width - 12, 6);
+      ctx.fillStyle = '#f55';
+      ctx.fillRect(this.x + 6, this.y - 12, ((this.health / 60) * (this.width - 12)), 6);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(this.x + 6, this.y - 12, this.width - 12, 6);
+      ctx.restore();
+    }
   }
 
   takeDamage(amount) {
     this.health -= amount;
     if (this.health <= 0) {
       this.alive = false;
-      this.health = 0;
-      this.game.waveDefeated++;
     }
   }
 };
@@ -364,27 +404,38 @@ window.Powerup = class Powerup {
     this.game = game;
     this.x = x;
     this.y = y;
+    this.type = type; // 'health', 'invincible', 'attack'
     this.width = 38;
     this.height = 38;
-    this.type = type; // 'health', 'invincible', 'attack'
     this.alive = true;
-    this.vy = -2.2 - Math.random() * 1.2;
-    this.gravity = 0.19;
+    this.vy = -2.2 - Math.random(); // float up a bit on spawn
+    this.floatTimer = 0;
   }
 
   update(dt) {
-    this.vy += this.gravity;
-    this.y += this.vy;
-    if (this.y > this.game.height - this.height) {
-      this.y = this.game.height - this.height;
+    // Float up then hover
+    if (this.floatTimer < 320) {
+      this.y += this.vy;
+      this.vy += 0.09;
+      this.floatTimer += dt;
+    } else {
+      this.y += Math.sin(Date.now()/220 + this.x) * 0.18;
+    }
+    // Clamp to ground
+    if (this.y > this.game.height - this.height - 24) {
+      this.y = this.game.height - this.height - 24;
       this.vy = 0;
     }
   }
 
   render(ctx) {
-    if (!this.alive) return;
-    if (this.type === 'health') window.SpriteLibrary.powerupHealth(ctx, this.x, this.y, this.width, this.height);
-    if (this.type === 'invincible') window.SpriteLibrary.powerupInvincible(ctx, this.x, this.y, this.width, this.height);
-    if (this.type === 'attack') window.SpriteLibrary.powerupAttack(ctx, this.x, this.y, this.width, this.height);
+    // Use SpriteLibrary for drawing
+    if (this.type === 'health') {
+      window.SpriteLibrary.powerupHealth(ctx, this.x, this.y, this.width, this.height);
+    } else if (this.type === 'invincible') {
+      window.SpriteLibrary.powerupInvincible(ctx, this.x, this.y, this.width, this.height);
+    } else if (this.type === 'attack') {
+      window.SpriteLibrary.powerupAttack(ctx, this.x, this.y, this.width, this.height);
+    }
   }
 };
