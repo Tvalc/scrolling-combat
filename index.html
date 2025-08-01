@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Side-Scrolling Beat 'Em Up</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-gray-900">
+  <div id="game-root" class="flex flex-col items-center justify-center min-h-screen p-2">
+    <div class="w-full max-w-3xl">
+      <canvas id="game-canvas" width="900" height="480" class="rounded-xl shadow-lg border-4 border-gray-700 bg-black"></canvas>
+      <div id="ui-overlay"></div>
+    </div>
+  </div>
+  <script src="utils.js"></script>
+  <script src="sprites.js"></script>
+  <script src="entities.js"></script>
+  <script src="ui.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>

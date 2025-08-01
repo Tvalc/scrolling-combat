@@ -1,355 +1,259 @@
 window.addEventListener('DOMContentLoaded', initGame);
 
-// --- Background Image Loader for Stage 1 ---
-const STAGE1_BG_URL = "https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/BackGround_1_SS_1753769088005.png";
-const _stage1BgImg = new window.Image();
-_stage1BgImg.src = STAGE1_BG_URL;
-_stage1BgImg.loaded = false;
-_stage1BgImg.onload = () => { _stage1BgImg.loaded = true; };
-
 function initGame() {
-  // Clean up any previous game
-  let cont = document.getElementById('gameContainer');
-  cont.innerHTML = '';
-  let canvas = document.createElement('canvas');
-  canvas.id = 'gameCanvas';
-  canvas.width = window.GAME_WIDTH;
-  canvas.height = window.GAME_HEIGHT;
-  canvas.tabIndex = 1;
-  canvas.className = "shadow-xl border-2 border-slate-700 mt-2";
-  cont.appendChild(canvas);
-
-  // Show start menu
-  window.UI.showMenu(
-    "Side-Scrolling Beat 'Em Up",
-    "Defeat all enemy waves! Powerups drop from defeated foes.<br>Survive 10 levels to win.",
-    "Start Game",
-    () => {
-      window.UI.hideMenus();
-      let game = new window.Game(canvas);
-      game.start();
-    }
-  );
+  window.gameInstance = new window.GameManager();
+  window.gameInstance.render();
 }
 
-// Game main manager
-window.Game = class Game {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
+window.GameManager = class GameManager {
+  constructor() {
+    this.width = 900;
+    this.height = 480;
+    this.canvas = document.getElementById('game-canvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.input = { left: false, right: false, jump: false, attack: false };
+    this.player = new window.Player(this);
+    this.entities = [];
+    this.enemies = [];
+    this.powerups = [];
     this.level = 0;
     this.stage = 0;
     this.wave = 0;
-    this.player = null;
-    this.enemies = [];
-    this.powerups = [];
-    this.particles = [];
-    this.input = {left: false, right: false, jump: false, attack: false, pause: false};
-    this.paused = false;
-    this.lastFrame = null;
-    this.state = 'menu'; // menu, running, paused, gameover, victory
-    this.waveClearedTimer = 0;
-    this.stageClearedTimer = 0;
-    this.levelClearedTimer = 0;
-    this._ui = null;
+    this.state = 'menu'; // menu, running, pause, gameover, win
+    this.lastFrame = window.Utils.now();
+    this.spawnDelay = 0;
+    this.waveEnemies = 0;
+    this.waveDefeated = 0;
+    this.bgScroll = 0;
     this.bindInput();
+    // Only call menuHandlers after DOM and UI are ready
+    setTimeout(() => this.menuHandlers(), 0);
+    this.render();
   }
-  start() {
+
+  bindInput() {
+    window.addEventListener('keydown', (e) => {
+      if (this.state !== 'running') return;
+      if (['a','A','ArrowLeft'].includes(e.key)) this.input.left = true;
+      if (['d','D','ArrowRight'].includes(e.key)) this.input.right = true;
+      if (['w','W','ArrowUp',' '].includes(e.key)) this.input.jump = true;
+      if (['j','J','z','Z'].includes(e.key)) this.input.attack = true;
+    });
+    window.addEventListener('keyup', (e) => {
+      if (['a','A','ArrowLeft'].includes(e.key)) this.input.left = false;
+      if (['d','D','ArrowRight'].includes(e.key)) this.input.right = false;
+      if (['w','W','ArrowUp',' '].includes(e.key)) this.input.jump = false;
+      if (['j','J','z','Z'].includes(e.key)) this.input.attack = false;
+    });
+    // Prevent scroll/jump on space/up
+    this.canvas.tabIndex = 1;
+    this.canvas.addEventListener('keydown', e => e.preventDefault());
+  }
+
+  menuHandlers() {
+    window.UI.showMenu(
+      '🌟 Side-Scrolling Beat \'Em Up 🌟',
+      [
+        {label: 'Start Game', id: 'btnStart'},
+        {label: 'Controls', id: 'btnControls'}
+      ],
+      () => {
+        const btnStart = document.getElementById('btnStart');
+        const btnControls = document.getElementById('btnControls');
+        if (btnStart) btnStart.onclick = () => this.startGame();
+        if (btnControls) {
+          btnControls.onclick = () => {
+            window.UI.showMenu(
+              'Controls',
+              [
+                {label: '←/A/D/→: Move', id: 'noop1'},
+                {label: 'W/↑/Space: Jump', id: 'noop2'},
+                {label: 'J/Z: Attack', id: 'noop3'},
+                {label: 'Back', id: 'btnBack'}
+              ],
+              () => {
+                const btnBack = document.getElementById('btnBack');
+                if (btnBack) btnBack.onclick = ()=>this.menuHandlers();
+              }
+            );
+          };
+        }
+      }
+    );
+  }
+
+  startGame() {
+    this.state = 'running';
     this.level = 0;
     this.stage = 0;
     this.wave = 0;
-    // Place player so the bottom of the sprite is flush with the bottom of the background
-    this.player = new window.Player(60, window.FLOOR_Y - window.PLAYER_HEIGHT);
+    this.player = new window.Player(this);
     this.enemies = [];
     this.powerups = [];
-    this.particles = [];
-    this.state = 'running';
+    this.waveEnemies = 0;
+    this.waveDefeated = 0;
+    this.spawnDelay = 0;
+    this.bgScroll = 0;
+    window.UI.drawHUD(this);
+    this.lastFrame = window.Utils.now();
+    // Spawn the first wave so enemies appear!
     this.spawnWave();
-    window.UI.makeUI(this);
-    this.render(performance.now());
+    this.render();
   }
-  bindInput() {
-    this._keydown = (e) => {
-      if (this.state !== 'running' && e.code !== 'Escape') return;
-      if (['ArrowLeft','KeyA'].includes(e.code)) this.input.left = true;
-      if (['ArrowRight','KeyD'].includes(e.code)) this.input.right = true;
-      if (['Space','KeyW','ArrowUp'].includes(e.code)) this.input.jump = true;
-      if (['KeyX','KeyK','KeyZ'].includes(e.code)) this.input.attack = true;
-      if (e.code === 'Escape') {
-        if (this.state === 'running') {
-          this.pause();
-        } else if (this.state === 'paused') {
-          this.resume();
-        }
-      }
-    };
-    this._keyup = (e) => {
-      if (['ArrowLeft','KeyA'].includes(e.code)) this.input.left = false;
-      if (['ArrowRight','KeyD'].includes(e.code)) this.input.right = false;
-      if (['Space','KeyW','ArrowUp'].includes(e.code)) this.input.jump = false;
-      if (['KeyX','KeyK','KeyZ'].includes(e.code)) this.input.attack = false;
-    };
-    window.addEventListener('keydown', this._keydown);
-    window.addEventListener('keyup', this._keyup);
-  }
-  unbindInput() {
-    window.removeEventListener('keydown', this._keydown);
-    window.removeEventListener('keyup', this._keyup);
-  }
-  pause() {
-    if (this.state !== 'running') return;
-    this.state = 'paused';
-    window.UI.showPause(this, ()=>this.resume());
-  }
-  resume() {
-    if (this.state !== 'paused') return;
-    this.state = 'running';
-    window.UI.hideMenus();
-    this.lastFrame = performance.now();
-    this.render(this.lastFrame);
-  }
-  spawnWave() {
-    // Increase difficulty per level/stage/wave
-    let numEnemies = 2 + Math.floor(this.wave*0.7) + window.randInt(0,1);
-    numEnemies += Math.floor(this.stage/3);
-    numEnemies = Math.min(9, numEnemies);
-    this.enemies = [];
-    for (let i=0; i<numEnemies; ++i) {
-      let ex = window.randInt(360, window.GAME_WIDTH-70);
-      let ey = window.FLOOR_Y - window.ENEMY_HEIGHT;
-      let col = window.pick(window.ENEMY_COLORS);
-      this.enemies.push(new window.Enemy(ex, ey, col));
-    }
-    // Every 10th wave, spawn a miniboss
-    if ((this.wave+1)%10===0) {
-      let ex = window.randInt(420, window.GAME_WIDTH-80);
-      let ey = window.FLOOR_Y - window.ENEMY_HEIGHT;
-      let boss = new window.Enemy(ex, ey, '#f2a742');
-      boss.maxHealth = boss.health = 70 + this.level*8 + this.stage*3;
-      boss.width = boss.height = 68;
-      this.enemies.push(boss);
-    }
-  }
-  advanceWaveOrStage() {
-    if (this.wave < 9) {
-      this.wave++;
-      this.spawnWave();
-      window.UI.update(this);
-    } else {
+
+  nextWave() {
+    this.wave++;
+    if (this.wave >= 10) {
       this.wave = 0;
-      this.advanceStageOrLevel();
-    }
-  }
-  advanceStageOrLevel() {
-    if (this.stage < 9) {
       this.stage++;
-      this.spawnWave();
-      window.UI.update(this);
-    } else {
-      this.stage = 0;
-      this.advanceLevel();
+      if (this.stage >= 10) {
+        this.stage = 0;
+        this.level++;
+        if (this.level >= 10) {
+          this.state = 'win';
+          this.showEnd('🏆 Victory! You Cleared All Levels!');
+          return;
+        }
+      }
     }
+    this.spawnWave();
   }
-  advanceLevel() {
-    if (this.level < 9) {
-      this.level++;
-      this.spawnWave();
-      window.UI.update(this);
-    } else {
-      // Win
-      this.state = 'victory';
-      setTimeout(()=>{
-        window.UI.showVictory(this, ()=> { this.start(); });
-      }, 600);
+
+  spawnWave() {
+    this.enemies = [];
+    this.powerups = [];
+    let enemyCount = 3 + Math.floor(this.level*0.6) + Math.floor(this.stage*0.4) + Math.floor(this.wave*0.6);
+    this.waveEnemies = enemyCount;
+    this.waveDefeated = 0;
+    for (let i=0; i<enemyCount; i++) {
+      let ex = 170 + i*window.Utils.randInt(40, 90) + window.Utils.randInt(0, 30) + 180;
+      let ey = this.height*0.41 + window.Utils.randInt(-18, 30);
+      this.enemies.push(new window.Enemy(this, ex, ey));
     }
+    window.UI.drawHUD(this);
   }
-  render(now) {
-    if (this.state === 'menu' || this.state === 'gameover' || this.state === 'victory') return;
-    let dt = 17;
-    if (this.lastFrame) dt = Math.min(now - this.lastFrame, 60);
-    this.lastFrame = now;
-    // Update
-    if (this.state === 'running') this.update(dt);
-    // Draw
-    this.draw();
-    // Next frame
-    if (this.state === 'running' || this.state === 'paused') {
-      window.requestAnimationFrame((t)=>this.render(t));
-    }
-  }
+
   update(dt) {
-    let p = this.player;
-    p.update(this.input, dt, this);
-    for (let enemy of this.enemies) {
-      enemy.update(p, dt);
-    }
-    for (let pow of this.powerups) {
-      pow.update(dt);
-    }
-    for (let part of this.particles) part.update(dt);
-    // Remove dead particles
-    this.particles = this.particles.filter(pt=>pt.life > 0);
-    // Enemies die and maybe drop powerup
-    for (let i=this.enemies.length-1; i>=0; --i) {
-      let e = this.enemies[i];
-      if (e.dead) {
-        // Drop powerup?
-        if (window.chance(1, 3)) {
-          let type = window.pick(window.POWERUP_TYPES);
-          let pow = new window.Powerup(e.x+e.width/2-16, e.y+e.height/2-16, type);
-          this.powerups.push(pow);
-        }
-        // Particles
-        for (let j=0;j<8+(Math.random()*4);++j) {
-          this.particles.push(new window.Particle(
-            e.x+e.width/2, e.y+e.height/2,
-            e.color, 14+Math.random()*6, 2.1+Math.random()*2.1
-          ));
-        }
-        this.enemies.splice(i,1);
-      }
-    }
-    // Powerup pickup
-    for (let i=this.powerups.length-1; i>=0; --i) {
-      let pow = this.powerups[i];
-      if (!pow.picked && window.rectsOverlap(
-        pow.x, pow.y, pow.size, pow.size,
-        p.x, p.y, p.width, p.height
-      )) {
-        pow.picked = true;
-        this.applyPowerup(pow.type);
-        // Add some particles
-        for (let j=0;j<7;++j) {
-          this.particles.push(new window.Particle(
-            pow.x+pow.size/2, pow.y+pow.size/2,
-            window.POWERUP_COLORS[pow.type][0], 13+Math.random()*5, 2+Math.random()*2
-          ));
-        }
-        this.powerups.splice(i,1);
-      }
-    }
-    // Enemy attacks player
-    for (let e of this.enemies) {
-      if (e.dead) continue;
-      let dx = (p.x+p.width/2)-(e.x+e.width/2);
-      if (Math.abs(dx) < window.ENEMY_ATTACK_RANGE+10 && e.isAttacking && e.attackAnim===7) {
-        p.takeDamage(window.ENEMY_ATTACK_DAMAGE + this.level);
-      }
-    }
-    // Player attacks enemy
-    if (p.isAttacking && p.attackAnim===7) {
-      let atkBase = 22 + this.level*1.2 + this.stage*0.7 + this.wave*0.3;
-      let atk = p.attackBoost > 0 ? atkBase*window.POWERUP_EFFECTS.attack.multiplier : atkBase;
-      for (let e of this.enemies) {
-        if (e.dead) continue;
-        let px = p.x + (p.dir > 0 ? p.width : 0);
-        let py = p.y + p.height/2;
-        let ex = e.x + e.width/2;
-        let ey = e.y + e.height/2;
-        let dist = window.distance(px, py, ex, ey);
-        let ang = Math.abs(window.angleBetween(px, py, ex, ey));
-        if (dist < window.PLAYER_ATTACK_RANGE+e.width/2 && ang < window.PLAYER_ATTACK_ARC) {
-          e.takeDamage(atk);
-        }
-      }
-    }
-    // Respawn if dead
-    if (p.dead) {
-      setTimeout(()=>{
-        if (p.lives > 0) {
-          // Respawn
-          let np = new window.Player(55, window.FLOOR_Y - window.PLAYER_HEIGHT);
-          np.lives = p.lives;
-          np.health = np.maxHealth;
-          this.player = np;
-          window.UI.update(this);
-        } else {
-          this.state = 'gameover';
-          setTimeout(()=>{
-            window.UI.showGameOver(this, ()=>{ this.start(); });
-          }, 500);
-        }
-      }, 740);
-      p.dead = false; // prevent multi-trigger
-    }
-    // Wave clear
-    if (this.enemies.length === 0 && this.powerups.length === 0) {
-      this.waveClearedTimer += dt;
-      if (this.waveClearedTimer > 650) {
-        this.waveClearedTimer = 0;
-        this.advanceWaveOrStage();
-      }
-    } else {
-      this.waveClearedTimer = 0;
-    }
-    window.UI.update(this);
-  }
-  applyPowerup(type) {
-    let p = this.player;
-    if (type === 'health') {
-      p.heal(window.POWERUP_EFFECTS.health.heal);
-    } else if (type === 'invincible') {
-      p.invincible = window.POWERUP_EFFECTS.invincible.duration;
-    } else if (type === 'attack') {
-      p.attackBoost = window.POWERUP_EFFECTS.attack.duration;
-    }
-  }
-  draw() {
-    let ctx = this.ctx;
-    ctx.clearRect(0,0,window.GAME_WIDTH,window.GAME_HEIGHT);
+    if (this.state !== 'running') return;
+    this.player.update(this.input, dt);
 
-    // --- Background rendering ---
-    if (this.stage === 0 && _stage1BgImg.loaded) {
-      // Draw image, scale to canvas
-      ctx.drawImage(_stage1BgImg, 0, 0, window.GAME_WIDTH, window.GAME_HEIGHT);
-    } else {
-      // Default background gradient for other stages (or loading fallback)
-      let grad = ctx.createLinearGradient(0,0,0,window.GAME_HEIGHT);
-      grad.addColorStop(0, "#4e5ba9");
-      grad.addColorStop(0.6, "#20223b");
-      grad.addColorStop(1, "#1a1f2d");
-      ctx.fillStyle = grad;
-      ctx.fillRect(0,0,window.GAME_WIDTH,window.GAME_HEIGHT);
-    }
-
-    // Stage floor
-    ctx.save();
-    ctx.globalAlpha = 0.69;
-    ctx.fillStyle = "#2e3145";
-    ctx.fillRect(0, window.FLOOR_Y+window.ENEMY_HEIGHT-16, window.GAME_WIDTH, window.GAME_HEIGHT-window.FLOOR_Y);
-    // Stripe
-    ctx.fillStyle = "#384c67";
-    ctx.fillRect(0, window.FLOOR_Y+window.ENEMY_HEIGHT-8, window.GAME_WIDTH, 8);
-    ctx.restore();
-
-    // Simple dynamic crowd
-    for (let i=0;i<15;++i) {
-      let x = 35+i*47+Math.sin(performance.now()/600+i)*4;
-      let y = window.FLOOR_Y-8-Math.abs(Math.sin(i+performance.now()/1200)*6);
-      ctx.save();
-      ctx.globalAlpha = 0.08 + 0.06*Math.abs(Math.sin(i+performance.now()/900));
-      ctx.beginPath();
-      ctx.ellipse(x, y, 14, 8, 0, 0, Math.PI*2);
-      ctx.fillStyle = window.pick(["#7c8cb5","#d2d7ee","#b3b8e6","#5c6793"]);
-      ctx.fill();
-      ctx.restore();
-    }
-    // Powerups
-    for (let pow of this.powerups) pow.draw(ctx);
     // Enemies
-    for (let e of this.enemies) e.draw(ctx);
-    // Player
-    this.player.draw(ctx);
-    // Particles
-    for (let part of this.particles) part.draw(ctx);
-
-    // If dead, overlay
-    if (this.player.dead) {
-      ctx.save();
-      ctx.globalAlpha = 0.55;
-      ctx.fillStyle = "#181a22";
-      ctx.fillRect(0,0,window.GAME_WIDTH,window.GAME_HEIGHT);
-      ctx.restore();
+    for (let enemy of this.enemies) {
+      if (enemy.alive) enemy.update(dt, this.player);
     }
+
+    // Powerups
+    for (let p of this.powerups) {
+      if (p.alive) p.update(dt);
+    }
+
+    // Player attacks
+    if (this.player.attackTime > 0) {
+      for (let enemy of this.enemies) {
+        if (!enemy.alive) continue;
+        let dx = (enemy.x+enemy.width/2)-(this.player.x+this.player.width/2+this.player.facing*38);
+        let dy = (enemy.y+enemy.height/2)-(this.player.y+this.player.height/1.7);
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < this.player.attackRange+26) {
+          enemy.takeDamage(this.player.attackBoost ? 60 : 32);
+          // knockback
+          enemy.x += this.player.facing*30;
+          // Powerup drop chance
+          if (!enemy.alive && Math.random()<0.32) {
+            // Pick type
+            let types = ['health','invincible','attack'];
+            let t = types[window.Utils.randInt(0,2)];
+            this.powerups.push(new window.Powerup(this, enemy.x, enemy.y, t));
+          }
+        }
+      }
+    }
+
+    // Enemy attacks player (normal contact damage, dash damage handled in Enemy)
+    for (let enemy of this.enemies) {
+      if (!enemy.alive) continue;
+      // Don't apply normal contact damage if enemy is dashing (dash handles its own collision/damage)
+      if (enemy.dashing) continue;
+      let dx = (enemy.x+enemy.width/2)-(this.player.x+this.player.width/2);
+      let dy = (enemy.y+enemy.height/2)-(this.player.y+this.player.height/2);
+      let dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < 44) {
+        this.player.takeDamage(enemy.damage);
+        enemy.x += this.player.facing*18;
+      }
+    }
+
+    // Powerup collect
+    for (let p of this.powerups) {
+      if (!p.alive) continue;
+      let dx = (p.x+p.width/2)-(this.player.x+this.player.width/2);
+      let dy = (p.y+p.height/2)-(this.player.y+this.player.height/2);
+      let dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < 48) {
+        this.player.collectPowerup(p.type);
+        p.alive = false;
+      }
+    }
+    this.powerups = this.powerups.filter(p=>p.alive);
+
+    // Enemies defeated check
+    let living = this.enemies.filter(e=>e.alive).length;
+    if (living === 0 && this.enemies.length>0) {
+      setTimeout(()=>this.nextWave(), 700);
+      this.enemies = [];
+    }
+
+    // Death/game over
+    if (this.player.dead && this.state==='running') {
+      this.state = 'gameover';
+      this.showEnd('💀 Game Over');
+    }
+  }
+
+  render() {
+    // Timing
+    let now = window.Utils.now();
+    let dt = now - this.lastFrame;
+    if (dt > 60) dt = 60; // clamp for tab switches
+    this.lastFrame = now;
+
+    // -- DRAW --
+    // Background
+    window.SpriteLibrary.backgroundStage1(this.ctx, this.width, this.height, now);
+
+    // Entities
+    for (let enemy of this.enemies) enemy.render(this.ctx);
+    for (let p of this.powerups) p.render(this.ctx);
+    this.player.render(this.ctx);
+
+    // UI
+    window.UI.drawHUD(this);
+
+    // State overlays
+    if (this.state === 'menu' || this.state === 'gameover' || this.state==='win') {
+      // Don't animate loop, wait for button
+      return;
+    }
+    // -- UPDATE --
+    this.update(dt);
+
+    // Next frame
+    requestAnimationFrame(()=>this.render());
+  }
+
+  showEnd(msg) {
+    window.UI.showMenu(
+      msg,
+      [
+        {label: 'Restart', id: 'btnRestart'},
+        {label: 'Main Menu', id: 'btnMenu'}
+      ],
+      () => {
+        const btnRestart = document.getElementById('btnRestart');
+        const btnMenu = document.getElementById('btnMenu');
+        if (btnRestart) btnRestart.onclick = ()=>this.startGame();
+        if (btnMenu) btnMenu.onclick = ()=>this.menuHandlers();
+      }
+    );
   }
 };
