@@ -147,8 +147,13 @@ window.GameManager = class GameManager {
       if (p.alive) p.update(dt);
     }
 
-    // Player attacks
-    if (this.player.attackTime > 0) {
+    // Player attacks: Only allow hitbox during frames 2–4 (index 1–3)
+    if (
+      this.player.attackTime > 0 &&
+      this.player.action === 'attack' &&
+      this.player.attackAnimFrame >= 1 &&
+      this.player.attackAnimFrame <= 3
+    ) {
       for (let enemy of this.enemies) {
         if (!enemy.alive) continue;
         let dx = (enemy.x+enemy.width/2)-(this.player.x+this.player.width/2+this.player.facing*38);

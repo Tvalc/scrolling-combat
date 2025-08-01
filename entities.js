@@ -55,7 +55,13 @@ window.Player = class Player {
     this.invincibleTimer = 0;
     this.attackBoostTimer = 0;
     this.attackRange = 46;
-    this.attackDuration = 200;
+
+    // === Attack Animation Parameters (FIXED) ===
+    this.attackAnimFrameTime = 85; // ms per frame (6 frames × 85ms ≈ 510ms)
+    this.attackAnimLoopsTarget = 1; // Only 1 loop for a single attack
+    this.attackAnimFramesCount = window.PlayerAttackFrames.length;
+    this.attackDuration = this.attackAnimFrameTime * this.attackAnimFramesCount; // ≈ 510ms
+    this.attackCooldown = 0; // Will be set on attack
     this.attackTime = 0;
     this.dead = false;
 
@@ -66,43 +72,49 @@ window.Player = class Player {
     // Attack animation state
     this.attackAnimFrame = 0;
     this.attackAnimTimer = 0;
-    this.attackAnimSpeed = 0.18;
-    this.attackAnimLoop = 0; // NEW: Track how many times we've looped the attack animation
-    this.attackAnimLoopsTarget = 2; // NEW: Loop attack animation 2 times per attack
+    this.attackAnimSpeed = 0.18; // not used but kept for reference
+    this.attackAnimLoop = 0;
   }
 
   update(input, dt) {
     if (this.dead) return;
     // Movement input
     let prevX = this.x;
-    if (input.left) {
-      this.x -= this.speed;
-      this.facing = -1;
-      if (this.onGround) this.action = 'walk';
-    }
-    if (input.right) {
-      this.x += this.speed;
-      this.facing = 1;
-      if (this.onGround) this.action = 'walk';
-    }
-    if (!input.left && !input.right && this.onGround) {
-      this.action = 'idle';
-      this.walkFrame = 0;
-    }
-    if (input.jump && this.onGround) {
-      this.vy = this.jumpVel;
-      this.onGround = false;
-      this.action = 'jump';
+    if (this.action !== 'attack') { // Do not interrupt attack animation
+      if (input.left) {
+        this.x -= this.speed;
+        this.facing = -1;
+        if (this.onGround) this.action = 'walk';
+      }
+      if (input.right) {
+        this.x += this.speed;
+        this.facing = 1;
+        if (this.onGround) this.action = 'walk';
+      }
+      if (!input.left && !input.right && this.onGround) {
+        this.action = 'idle';
+        this.walkFrame = 0;
+      }
+      if (input.jump && this.onGround) {
+        this.vy = this.jumpVel;
+        this.onGround = false;
+        this.action = 'jump';
+      }
+    } else {
+      // Still allow gravity/jump to work during attack in air
+      if (!this.onGround && input.jump && this.vy > 0) {
+        this.vy = this.jumpVel;
+      }
     }
 
     // Attack (allow in air and on ground)
-    if (input.attack && this.attackCooldown <= 0) {
+    if (input.attack && this.attackCooldown <= 0 && this.action !== 'attack') {
       this.action = 'attack';
       this.attackTime = this.attackDuration;
-      this.attackCooldown = 360;
+      this.attackCooldown = this.attackDuration + 120; // animation duration + 120ms buffer
       this.attackAnimFrame = 0;
       this.attackAnimTimer = 0;
-      this.attackAnimLoop = 0; // reset animation loops
+      this.attackAnimLoop = 0;
     }
 
     // Gravity
@@ -113,7 +125,7 @@ window.Player = class Player {
         this.y = this.groundY;
         this.vy = 0;
         this.onGround = true;
-        this.action = 'idle';
+        if (this.action === 'jump') this.action = 'idle';
       }
     }
 
@@ -129,7 +141,7 @@ window.Player = class Player {
     // === Jump Animation Frame Update ===
     if (!this.onGround) {
       this.jumpAnimTimer += dt;
-      if (this.jumpAnimTimer > 580) { // SLOWER: 180ms per frame
+      if (this.jumpAnimTimer > 180) { // SLOWER: 180ms per frame
         this.jumpAnimFrame = (this.jumpAnimFrame + 1) % window.PlayerJumpFrames.length;
         this.jumpAnimTimer = 0;
       }
@@ -138,25 +150,22 @@ window.Player = class Player {
       this.jumpAnimTimer = 0;
     }
 
-    // === Attack Animation Frame Update (LOOP TWICE) ===
-    if (this.action === 'attack' && this.attackTime > 0) {
+    // === Attack Animation Frame Update (play ONCE, 85ms per frame, NO LOOP) ===
+    if (this.action === 'attack') {
       this.attackAnimTimer += dt;
-      if (this.attackAnimTimer > 580) { // SLOWER: 580ms per frame
+      if (this.attackAnimTimer > this.attackAnimFrameTime) {
         this.attackAnimFrame++;
-        if (this.attackAnimFrame >= window.PlayerAttackFrames.length) {
-          this.attackAnimFrame = 0;
-          this.attackAnimLoop++;
-        }
-        // After 2 loops, end attack animation
-        if (this.attackAnimLoop >= this.attackAnimLoopsTarget) {
+        this.attackAnimTimer = 0;
+        if (this.attackAnimFrame >= this.attackAnimFramesCount) {
+          // Animation done
           this.action = this.onGround ? 'idle' : 'jump';
           this.attackAnimFrame = 0;
           this.attackAnimLoop = 0;
           this.attackTime = 0;
         }
-        this.attackAnimTimer = 0;
       }
     } else {
+      // Reset attack animation state if not attacking
       this.attackAnimFrame = 0;
       this.attackAnimTimer = 0;
       this.attackAnimLoop = 0;
@@ -183,8 +192,8 @@ window.Player = class Player {
 
   render(ctx) {
     // === Attack Animation Render ===
-    if (this.action === 'attack' && this.attackTime > 0) {
-      const img = window.PlayerAttackFrames[this.attackAnimFrame];
+    if (this.action === 'attack') {
+      const img = window.PlayerAttackFrames[Math.min(this.attackAnimFrame, this.attackAnimFramesCount - 1)];
       ctx.save();
       ctx.imageSmoothingEnabled = false;
       if (this.facing === 1) {
