@@ -11,6 +11,17 @@ window.PlayerJumpFrames = [
   return img;
 });
 
+// == Attack Animation Preload ==
+window.PlayerAttackFrames = [
+  'https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Coop_Crouch_4_1754021076784.png',
+  'https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Coop_Punch_2_1754021388739.png',
+  'https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Coop_Kick_2_1754021214028.png'
+].map(src => {
+  const img = new window.Image();
+  img.src = src;
+  return img;
+});
+
 // == Player Entity ==
 window.Player = class Player {
   constructor(game) {
@@ -47,6 +58,11 @@ window.Player = class Player {
     // Jump animation state
     this.jumpAnimFrame = 0;
     this.jumpAnimTimer = 0;
+
+    // Attack animation state
+    this.attackAnimFrame = 0;
+    this.attackAnimTimer = 0;
+    this.attackAnimSpeed = 0.18;
   }
 
   update(input, dt) {
@@ -113,6 +129,18 @@ window.Player = class Player {
       this.jumpAnimTimer = 0;
     }
 
+    // === Attack Animation Frame Update ===
+    if (this.action === 'attack' && this.attackTime > 0) {
+      this.attackAnimTimer += dt;
+      if (this.attackAnimTimer > 160) { // SLOW DOWN: was 80ms, now 160ms per frame
+        this.attackAnimFrame = (this.attackAnimFrame + 1) % window.PlayerAttackFrames.length;
+        this.attackAnimTimer = 0;
+      }
+    } else {
+      this.attackAnimFrame = 0;
+      this.attackAnimTimer = 0;
+    }
+
     // Attack cooldown
     if (this.attackCooldown > 0) this.attackCooldown -= dt;
     if (this.attackTime > 0) this.attackTime -= dt;
@@ -133,18 +161,30 @@ window.Player = class Player {
   }
 
   render(ctx) {
-    // === Jump Animation Render ===
-    if (!this.onGround) {
+    // === Attack Animation Render ===
+    if (this.action === 'attack' && this.attackTime > 0) {
+      const img = window.PlayerAttackFrames[this.attackAnimFrame];
+      ctx.save();
+      ctx.imageSmoothingEnabled = false;
+      if (this.facing === 1) {
+        ctx.drawImage(img, 0, 0, img.width, img.height, this.x, this.y, this.width, this.height);
+      } else {
+        ctx.translate(this.x + this.width, this.y);
+        ctx.scale(-1, 1);
+        ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, this.width, this.height);
+      }
+      ctx.restore();
+    } else if (!this.onGround) {
       // Draw jump animation, mirrored if facing left
       const img = window.PlayerJumpFrames[this.jumpAnimFrame];
       ctx.save();
       ctx.imageSmoothingEnabled = false;
       if (this.facing === 1) {
-        ctx.drawImage(img, this.x, this.y, this.width, this.height);
+        ctx.drawImage(img, 0, 0, img.width, img.height, this.x, this.y, this.width, this.height);
       } else {
         ctx.translate(this.x + this.width, this.y);
         ctx.scale(-1, 1);
-        ctx.drawImage(img, 0, 0, this.width, this.height);
+        ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, this.width, this.height);
       }
       ctx.restore();
     } else {
@@ -154,7 +194,6 @@ window.Player = class Player {
       if (this.action === 'walk') {
         animArr[frameIdx](ctx, this.x, this.y, this.width, this.height, frameIdx);
       } else {
-        // Use first frame for idle/attack
         animArr[0](ctx, this.x, this.y, this.width, this.height, 0);
       }
     }
@@ -223,160 +262,98 @@ window.Enemy = class Enemy {
     this.game = game;
     this.x = x;
     this.y = y;
-    this.baseY = y;
-    this.width = 48;
-    this.height = 56;
-    this.hp = 40;
-    this.maxHp = 40;
+    this.width = 54;
+    this.height = 54;
+    this.vx = (Math.random() < 0.5 ? -1 : 1) * (2.2 + Math.random() * 1.2);
+    this.vy = 0;
+    this.groundY = 392;
     this.alive = true;
-    this.frame = window.Utils.randInt(0, window.SpriteLibrary.enemyFrames.length - 1);
-    this.frameTime = window.Utils.randFloat(0,2*Math.PI);
-    this.facing = Math.random() < 0.5 ? -1 : 1;
-    this.floatPhase = Math.random() * Math.PI * 2;
-    this.targeting = false;
-    this.targetDelay = window.Utils.randInt(1500, 3000);
-    this.targetTimer = this.targetDelay;
-    this.vx = 0; this.vy = 0;
-    this.speed = 2.1;
-    this.damage = 16;
-
-    // --- Dash properties ---
+    this.health = 60 + Math.floor(game.level * 8) + Math.floor(game.stage * 6) + Math.floor(game.wave * 4);
+    this.damage = 22 + Math.floor(game.level * 2.5);
     this.dashing = false;
-    this.dashCooldown = window.Utils.randInt(1000, 3000); // ms until dash ready
-    this.dashTimer = this.dashCooldown;
-    this.dashVx = 0;
-    this.dashVy = 0;
-    this.dashDuration = 0;
-    this.dashDurationMax = 340; // ms (short, fast dash)
-    this.dashSpeed = 7.3;
-    this.dashHit = false; // So damage is only applied once per dash
+    this.dashTime = 0;
+    this.dashCooldown = 0;
+    this.frame = Math.floor(Math.random() * window.SpriteLibrary.enemyFrames.length);
+    this.frameTimer = 0;
+    this.frameSpeed = 0.18 + Math.random() * 0.08;
   }
 
   update(dt, player) {
-    // Animate float (unless dashing)
-    if (!this.dashing) {
-      this.y = this.baseY + Math.sin(window.Utils.now()/430 + this.floatPhase) * 16;
-    }
-    // Animation frame
-    this.frameTime += dt/90;
-    if (this.frameTime > 1) {
-      this.frame = (this.frame+1)%window.SpriteLibrary.enemyFrames.length;
-      this.frameTime = 0;
-    }
+    if (!this.alive) return;
 
-    // --- Dash logic ---
+    // Dash logic
+    if (this.dashCooldown > 0) this.dashCooldown -= dt;
     if (this.dashing) {
-      // Dash in progress
-      this.x += this.dashVx * dt/16.67;
-      this.y += this.dashVy * dt/16.67;
-      this.dashDuration -= dt;
-      // Dash-player collision (once per dash)
-      if (!this.dashHit) {
-        let dx = (this.x+this.width/2)-(player.x+player.width/2);
-        let dy = (this.y+this.height/2)-(player.y+player.height/2);
-        let dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < Math.max(this.width, this.height, 42)) {
-          player.takeDamage(this.damage * 1.2 | 0); // dash is stronger
-          this.dashHit = true;
-        }
-      }
-      // End dash if time up or out of bounds
-      if (
-        this.dashDuration <= 0 ||
-        this.x < 0 ||
-        this.x > this.game.width-this.width ||
-        this.y < 0 ||
-        this.y > this.game.height-this.height
-      ) {
+      this.dashTime -= dt;
+      this.x += this.vx * 2.7;
+      if (this.dashTime <= 0) {
         this.dashing = false;
-        this.dashTimer = window.Utils.randInt(1000, 3000);
-        this.dashVx = 0;
-        this.dashVy = 0;
-        // rebase Y to new float center after dash
-        this.baseY = this.game.height*0.41 + window.Utils.randInt(-22, 22);
+        this.dashCooldown = 900 + Math.random() * 700;
       }
-      return;
+    } else {
+      // Move toward player
+      let dx = player.x - this.x;
+      if (Math.abs(dx) > 8) {
+        this.x += Math.sign(dx) * (1.2 + Math.random() * 0.7);
+      }
+      // Random dash
+      if (this.dashCooldown <= 0 && Math.abs(dx) < 220 && Math.random() < 0.018) {
+        this.dashing = true;
+        this.dashTime = 260 + Math.random() * 120;
+        this.vx = Math.sign(dx) * (3.8 + Math.random() * 1.2);
+      }
     }
 
-    // Dash cooldown countdown
-    this.dashTimer -= dt;
-    if (this.dashTimer <= 0 && !this.dashing && this.alive) {
-      // Start dash toward player
-      let dx = (player.x + player.width/2) - (this.x + this.width/2);
-      let dy = (player.y + player.height/2) - (this.y + this.height/2);
-      let dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      this.dashVx = (dx/dist) * this.dashSpeed;
-      this.dashVy = (dy/dist) * this.dashSpeed;
-      this.dashDuration = this.dashDurationMax;
-      this.dashing = true;
-      this.dashHit = false;
-      // Dash overrides normal movement for now
-      return;
-    }
-
-    // Targeting logic (normal movement, only if not dashing)
-    this.targetTimer -= dt;
-    if (this.targetTimer <= 0 && !this.targeting) {
-      this.targeting = true;
-      // Set direction toward player
-      let dx = (player.x + player.width/2) - (this.x + this.width/2);
-      let dy = (player.y + player.height/2) - (this.y + this.height/2);
-      let dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      this.vx = (dx/dist) * this.speed * 2.3;
-      this.vy = (dy/dist) * this.speed * 2.3;
-      this.targetTimer = window.Utils.randInt(1100, 2100);
-    }
-    if (this.targeting) {
-      this.x += this.vx;
+    // Gravity
+    if (this.y < this.groundY) {
+      this.vy += 0.38;
       this.y += this.vy;
-      // Stop after flying some distance or going offscreen
-      if (
-        Math.abs(this.vx) < 0.01 ||
-        this.x < 0 ||
-        this.x > this.game.width-this.width ||
-        this.y < 0 ||
-        this.y > this.game.height-this.height
-      ) {
-        this.targeting = false;
-        this.vx = 0;
+      if (this.y > this.groundY) {
+        this.y = this.groundY;
         this.vy = 0;
-        // rebase Y to new float center
-        this.baseY = this.game.height*0.41 + window.Utils.randInt(-22, 22);
+      }
+    }
+
+    // Clamp position
+    this.x = window.Utils.clamp(this.x, 0, this.game.width - this.width);
+
+    // Animation frame
+    this.frameTimer += this.frameSpeed;
+    if (this.frameTimer >= window.SpriteLibrary.enemyFrames.length) this.frameTimer = 0;
+    this.frame = Math.floor(this.frameTimer);
+
+    // Dash collision with player
+    if (this.dashing && !player.invincible && !player.dead) {
+      let dx = (this.x + this.width / 2) - (player.x + player.width / 2);
+      let dy = (this.y + this.height / 2) - (player.y + player.height / 2);
+      let dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 44) {
+        player.takeDamage(this.damage + 12);
+        this.dashing = false;
+        this.dashCooldown = 1200 + Math.random() * 600;
       }
     }
   }
 
   render(ctx) {
-    let f = this.frame % window.SpriteLibrary.enemyFrames.length;
-    window.SpriteLibrary.enemyFrames[f](ctx, this.x, this.y, this.width, this.height, f);
-
-    // Visual effect for dash (optional: add a faint glow/trail while dashing)
-    if (this.dashing) {
-      ctx.save();
-      ctx.globalAlpha = 0.25;
-      ctx.beginPath();
-      ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width * 0.7, 0, Math.PI * 2);
-      ctx.fillStyle = "#fff8";
-      ctx.shadowColor = "#e3d180";
-      ctx.shadowBlur = 13;
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // HP bar
+    if (!this.alive) return;
+    window.SpriteLibrary.enemyFrames[this.frame](ctx, this.x, this.y, this.width, this.height, this.frame);
+    // Health bar
     ctx.save();
-    ctx.globalAlpha = 0.65;
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(this.x+6, this.y+this.height-8, this.width-12, 7);
-    ctx.fillStyle = "#f55";
-    ctx.fillRect(this.x+6, this.y+this.height-8, (this.width-12)*(this.hp/this.maxHp), 7);
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = "#f44";
+    ctx.fillRect(this.x + 6, this.y + this.height - 8, this.width - 12, 6);
+    ctx.fillStyle = "#8f8";
+    ctx.fillRect(this.x + 6, this.y + this.height - 8, (this.width - 12) * (this.health / 100), 6);
     ctx.restore();
   }
 
   takeDamage(amount) {
-    this.hp -= amount;
-    if (this.hp <= 0) {
+    this.health -= amount;
+    if (this.health <= 0) {
       this.alive = false;
+      this.health = 0;
+      this.game.waveDefeated++;
     }
   }
 };
@@ -387,34 +364,27 @@ window.Powerup = class Powerup {
     this.game = game;
     this.x = x;
     this.y = y;
-    this.width = 36;
-    this.height = 36;
+    this.width = 38;
+    this.height = 38;
     this.type = type; // 'health', 'invincible', 'attack'
-    this.vy = -2.1;
     this.alive = true;
-    this.bounce = 0;
+    this.vy = -2.2 - Math.random() * 1.2;
+    this.gravity = 0.19;
   }
 
   update(dt) {
+    this.vy += this.gravity;
     this.y += this.vy;
-    this.vy += 0.24;
-    if (this.y + this.height > this.game.height*0.87) {
-      this.y = this.game.height*0.87 - this.height;
-      this.vy = -this.vy * 0.36;
-      this.bounce++;
-      if (this.bounce > 2) this.vy = 0;
+    if (this.y > this.game.height - this.height) {
+      this.y = this.game.height - this.height;
+      this.vy = 0;
     }
   }
 
   render(ctx) {
-    if (this.type === 'health') {
-      window.SpriteLibrary.powerupHealth(ctx, this.x, this.y, this.width, this.height);
-    }
-    if (this.type === 'invincible') {
-      window.SpriteLibrary.powerupInvincible(ctx, this.x, this.y, this.width, this.height);
-    }
-    if (this.type === 'attack') {
-      window.SpriteLibrary.powerupAttack(ctx, this.x, this.y, this.width, this.height);
-    }
+    if (!this.alive) return;
+    if (this.type === 'health') window.SpriteLibrary.powerupHealth(ctx, this.x, this.y, this.width, this.height);
+    if (this.type === 'invincible') window.SpriteLibrary.powerupInvincible(ctx, this.x, this.y, this.width, this.height);
+    if (this.type === 'attack') window.SpriteLibrary.powerupAttack(ctx, this.x, this.y, this.width, this.height);
   }
 };
