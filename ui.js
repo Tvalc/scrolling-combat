@@ -1,42 +1,55 @@
-window.UI = {
-  drawHUD: function(game) {
-    const ui = document.getElementById('ui-overlay');
-    if (!ui) return;
-    ui.innerHTML = `
-      <div class="ui-bar flex-row gap-8 items-center mt-2">
-        <div class="ui-label">Level <span class="text-blue-200">${game.level+1}</span> &nbsp;|&nbsp; Stage <span class="text-blue-200">${game.stage+1}</span> &nbsp;|&nbsp; Wave <span class="text-blue-200">${game.wave+1}</span></div>
-        <div class="ui-label flex flex-row items-center gap-2">
-          <span>Lives:</span>
-          ${Array(game.player.lives).fill('<span class="ml-1 text-2xl">💙</span>').join('')}
-        </div>
-        <div class="ui-label flex flex-row items-center gap-2">
-          <span>Health:</span>
-          <div class="ui-health-bg inline-block align-middle">
-            <div class="ui-health-inner" style="width: ${(game.player.health/game.player.maxHealth)*100}%"></div>
-          </div>
-        </div>
-        <div class="ui-label flex flex-row items-center gap-2">
-          ${game.player.invincible ? '<span class="ml-1 text-xl">🛡️</span>' : ''}
-          ${game.player.attackBoost ? '<span class="ml-1 text-xl">💥</span>' : ''}
-        </div>
-      </div>
-    `;
-  },
-  showMenu: function(title, buttons, callback) {
-    const ui = document.getElementById('ui-overlay');
-    if (!ui) return;
-    ui.innerHTML = `
-      <div class="menu-container">
-        <div class="menu-title">${title}</div>
-        ${buttons.map(btn => `<button class="menu-btn" id="${btn.id}">${btn.label}</button>`).join('')}
-      </div>
-    `;
-    // Guarantee DOM is updated before callback runs (fixes timing bugs)
-    if (typeof callback === 'function') {
-      // Use requestAnimationFrame to allow DOM update, then call callback
-      requestAnimationFrame(() => {
-        callback();
-      });
+window.UI = window.UI || {};
+window.UI.drawHUD = function(game) {
+  const ctx = game.ctx;
+  ctx.save();
+  ctx.font = "bold 22px Arial";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "#222";
+  ctx.fillRect(18, 18, 180, 22);
+  ctx.fillStyle = "#4cf55a";
+  ctx.fillRect(18, 18, 180 * (game.player.health / game.player.maxHealth), 22);
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(18, 18, 180, 22);
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 16px Arial";
+  ctx.fillText(`Health: ${game.player.health}/${game.player.maxHealth}`, 24, 21);
+  ctx.font = "bold 22px Arial";
+  ctx.fillText("Lives: " + game.player.lives, 18, 48);
+  ctx.restore();
+};
+
+// Menu system
+window.UI.showMenu = function(title, buttons, cb) {
+  console.log('[UI.showMenu] called', title, buttons);
+  const overlay = document.getElementById('menu-overlay');
+  const content = document.getElementById('menu-content');
+  if (!overlay || !content) return;
+
+  // Build menu HTML
+  let html = '';
+  if (title) {
+    html += `<h1 style="margin-top:0;margin-bottom:18px;font-size:2rem;text-align:center;">${title}</h1>`;
+  }
+  for (let btn of buttons) {
+    // If id starts with 'noop', render disabled label/button (for controls display)
+    if (btn.id && btn.id.startsWith('noop')) {
+      html += `<div style="margin:12px 0;font-size:1.1rem;opacity:0.76;text-align:center;">${btn.label}</div>`;
+    } else {
+      html += `<button id="${btn.id}" style="margin:10px auto 0 auto;display:block;width:220px;font-size:1.15rem;padding:13px 0;border-radius:7px;border:none;background:#34b4fa;color:#fff;cursor:pointer;">${btn.label}</button>`;
     }
   }
+  content.innerHTML = html;
+
+  overlay.style.display = 'flex';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+
+  if (typeof cb === 'function') setTimeout(cb, 0);
+};
+
+window.UI.hideMenu = function() {
+  const overlay = document.getElementById('menu-overlay');
+  if (overlay) overlay.style.display = 'none';
 };

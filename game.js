@@ -5,11 +5,134 @@ function initGame() {
   window.gameInstance.render();
 }
 
+// === New Enemy Class: GroundJumperEnemy ===
+window.GroundJumperEnemy = class GroundJumperEnemy {
+  constructor(game, x) {
+    this.game = game;
+    this.x = x;
+    this.width = 48;
+    this.height = 54;
+    // Set groundY to window.FLOOR_Y for correct alignment with ground in background
+    this.groundY = window.FLOOR_Y;
+    // Always spawn on ground:
+    this.y = this.groundY - this.height;
+    this.vx = 1.65 + Math.random() * 0.65;
+    this.facing = 1;
+    this.health = 38;
+    this.alive = true;
+    this.damage = 18;
+    this.stepCounter = 0;
+    this.nextJumpSteps = 24 + window.Utils.randInt(0, 26);
+    this.jumping = false;
+    this.vy = 0;
+    this.gravity = 0.5 + Math.random() * 0.1;
+    this.jumpPower = -8 - Math.random() * 2.2;
+
+    // === All ground enemies use DooomShroom frames ===
+    this.walkFrames = window.SpriteLibrary.doomShroomFrames.map(fn => fn.img || null).filter(Boolean);
+    this.usesFrameFunctions = false;
+    this.animFrame = 0;
+    this.animTimer = 0;
+  }
+
+  update(dt, player) {
+    if (!this.alive) return;
+
+    // Walk logic
+    if (!this.jumping) {
+      this.facing = player.x > this.x ? 1 : -1;
+      this.x += this.vx * this.facing;
+      this.stepCounter++;
+      // Clamp to ground
+      if (this.y + this.height < this.groundY) {
+        this.y += this.gravity * (dt / 16.67);
+        if (this.y + this.height > this.groundY) {
+          this.y = this.groundY - this.height;
+        }
+      } else {
+        this.y = this.groundY - this.height;
+      }
+      // Jump towards player after N steps
+      if (this.stepCounter >= this.nextJumpSteps && Math.abs(this.x - player.x) > 24) {
+        this.jumping = true;
+        // Set jump velocity toward player
+        let dx = (player.x + player.width / 2) - (this.x + this.width / 2);
+        let dtot = Math.max(Math.abs(dx), 60);
+        this.vy = this.jumpPower;
+        this.vx_jump = (dx / dtot) * (2.0 + Math.random() * 1.8);
+        // Reset step counter
+        this.stepCounter = 0;
+        this.nextJumpSteps = 24 + window.Utils.randInt(0, 28);
+      }
+    } else {
+      // In jumping phase: arc toward player
+      this.x += this.vx_jump;
+      this.y += this.vy;
+      this.vy += this.gravity * (dt / 16.67);
+      // Land on ground
+      if (this.y + this.height >= this.groundY) {
+        this.y = this.groundY - this.height;
+        this.jumping = false;
+        this.vy = 0;
+      }
+    }
+
+    // Clamp inside screen
+    this.x = window.Utils.clamp(this.x, 0, this.game.width - this.width);
+
+    // Animation
+    this.animTimer += dt;
+    if (this.animTimer > 90) {
+      this.animFrame = (this.animFrame + 1) % (this.walkFrames.length || 1);
+      this.animTimer = 0;
+    }
+  }
+
+  render(ctx) {
+    if (!this.alive) return;
+    if (this.usesFrameFunctions) {
+      window.SpriteLibrary.enemyFrames[this.animFrame % window.SpriteLibrary.enemyFrames.length](
+        ctx, this.x, this.y, this.width, this.height, this.animFrame
+      );
+    } else {
+      let img = this.walkFrames[this.animFrame];
+      ctx.save();
+      ctx.imageSmoothingEnabled = false;
+      ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+      ctx.scale(this.facing, 1);
+      ctx.drawImage(img, -this.width / 2, -this.height / 2, this.width, this.height);
+      ctx.restore();
+    }
+    // Optionally: draw health bar
+    if (this.alive && this.health < 38) {
+      ctx.save();
+      ctx.fillStyle = '#222';
+      ctx.fillRect(this.x + 4, this.y - 10, this.width - 8, 5);
+      ctx.fillStyle = '#a00';
+      ctx.fillRect(this.x + 4, this.y - 10, (this.width - 8) * (this.health / 38), 5);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(this.x + 4, this.y - 10, this.width - 8, 5);
+      ctx.restore();
+    }
+  }
+
+  takeDamage(dmg) {
+    this.health -= dmg;
+    if (this.health <= 0) {
+      this.alive = false;
+    }
+  }
+};
+
 window.GameManager = class GameManager {
   constructor() {
-    this.width = 900;
-    this.height = 480;
+    // PATCH: Set canvas and logical size to 1280x720
+    this.width = 1280;
+    this.height = 720;
     this.canvas = document.getElementById('game-canvas');
+    this.canvas.width = this.width;
+    this.canvas.height = this.height;
     this.ctx = this.canvas.getContext('2d');
     this.input = { left: false, right: false, jump: false, attack: false };
     this.player = new window.Player(this);
@@ -51,6 +174,7 @@ window.GameManager = class GameManager {
   }
 
   menuHandlers() {
+    console.log('[menuHandlers] called');
     window.UI.showMenu(
       '🌟 Side-Scrolling Beat \'Em Up 🌟',
       [
@@ -83,6 +207,7 @@ window.GameManager = class GameManager {
   }
 
   startGame() {
+    window.UI.hideMenu(); // <-- Add this!
     this.state = 'running';
     this.level = 0;
     this.stage = 0;
@@ -126,9 +251,17 @@ window.GameManager = class GameManager {
     this.waveEnemies = enemyCount;
     this.waveDefeated = 0;
     for (let i=0; i<enemyCount; i++) {
-      let ex = 170 + i*window.Utils.randInt(40, 90) + window.Utils.randInt(0, 30) + 180;
-      let ey = this.height*0.41 + window.Utils.randInt(-18, 30);
-      this.enemies.push(new window.Enemy(this, ex, ey));
+      let ex = 170 + i*window.Utils.randInt(30, 50) + window.Utils.randInt(0, 10) + 80;
+      // --- 40% chance to spawn GroundJumperEnemy ---
+      if (Math.random() < 0.4) {
+        // Always use DooomShroom frames and spawn on ground
+        let groundEnemy = new window.GroundJumperEnemy(this, ex);
+        this.enemies.push(groundEnemy);
+      } else {
+        // Flying enemies (ships) can use original y logic
+        let ey = this.height*0.41 + window.Utils.randInt(-18, 30);
+        this.enemies.push(new window.Enemy(this, ex, ey));
+      }
     }
     window.UI.drawHUD(this);
   }
@@ -234,15 +367,12 @@ window.GameManager = class GameManager {
     // UI
     window.UI.drawHUD(this);
 
-    // State overlays
-    if (this.state === 'menu' || this.state === 'gameover' || this.state==='win') {
-      // Don't animate loop, wait for button
-      return;
-    }
     // -- UPDATE --
-    this.update(dt);
+    if (this.state === 'running') {
+      this.update(dt);
+    }
 
-    // Next frame
+    // Always continue the render loop so overlays persist and UI is responsive
     requestAnimationFrame(()=>this.render());
   }
 

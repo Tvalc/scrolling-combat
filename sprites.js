@@ -19,16 +19,35 @@ const playerWalkLeftImages = [
   preloadImage("https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Coop_Walk_L_8_1753895628385.png")
 ];
 
-// Use 8 frames for left walk, but you may want to reduce to 6 for symmetry if needed
-// For right, we'll mirror the image draw
+// === PLAYER SPRITE SCALING FOR IDLE/WALK ===
+const PLAYER_IDLE_WALK_SCALE = 0.75; // 75% of original size for visual match
+
+// ----------------------
+// === ENEMY 2 (DoomShroom) WALK FRAMES ===
+const doomShroomWalkImages = [
+  preloadImage('https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/DooomShroom_Walk_17_1754073487719.png'),
+  preloadImage('https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/DooomShroom_Walk_14_1754073455661.png'),
+  preloadImage('https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/DooomShroom_Walk_12_1754073415027.png'),
+  preloadImage('https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/DoomShroom_Walk_7_1754072016048.png'),
+  preloadImage('https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/DooomShroom_Walk_11_1754073404717.png')
+];
 
 window.SpriteLibrary = {
-  // === PLAYER ANIMATION: Use image sprites ===
+  // === PLAYER ANIMATION: Use image sprites with consistent scaling ===
   playerWalkLeft: playerWalkLeftImages.map(img => {
     return function(ctx, x, y, w, h, frame) {
       ctx.save();
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(img, x, y, w, h);
+      const scaledW = w * PLAYER_IDLE_WALK_SCALE;
+      const scaledH = h * PLAYER_IDLE_WALK_SCALE;
+      // Center the scaled image at (x, y)
+      ctx.drawImage(
+        img,
+        x + (w - scaledW) / 2,
+        y + (h - scaledH) / 2,
+        scaledW,
+        scaledH
+      );
       ctx.restore();
     };
   }),
@@ -39,7 +58,15 @@ window.SpriteLibrary = {
       ctx.translate(x + w, y);
       ctx.scale(-1, 1);
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(img, 0, 0, w, h);
+      const scaledW = w * PLAYER_IDLE_WALK_SCALE;
+      const scaledH = h * PLAYER_IDLE_WALK_SCALE;
+      ctx.drawImage(
+        img,
+        (w - scaledW) / 2,
+        (h - scaledH) / 2,
+        scaledW,
+        scaledH
+      );
       ctx.restore();
     };
   }),
@@ -56,12 +83,27 @@ window.SpriteLibrary = {
     preloadImage("https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Enemy_Ship_8_1753824730385.png"),
     preloadImage("https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Enemy_Ship_9_1753824738269.png")
   ].map(img => {
-    return function(ctx, x, y, w, h, frame) {
+    // For GroundJumperEnemy compatibility, attach .img property for easy access
+    const fn = function(ctx, x, y, w, h, frame) {
       ctx.save();
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(img, x, y, w, h);
       ctx.restore();
     };
+    fn.img = img;
+    return fn;
+  }),
+
+  // === ENEMY 2: DooomShroom Frames ===
+  doomShroomFrames: doomShroomWalkImages.map(img => {
+    const fn = function(ctx, x, y, w, h, frame) {
+      ctx.save();
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, x, y, w, h);
+      ctx.restore();
+    };
+    fn.img = img;
+    return fn;
   }),
 
   // === POWERUPS (simple shapes) ===
@@ -105,6 +147,57 @@ window.SpriteLibrary = {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('💥', x + w/2, y + h/2);
+    ctx.restore();
+  },
+
+  // === ENEMY EXPLOSION EFFECT ===
+  enemyExplosion: function(ctx, cx, cy, w, h, t) {
+    // t: 0.0 (start) to 1.0 (end)
+    ctx.save();
+    ctx.globalAlpha = 1 - t;
+    // Main burst
+    let r = w * (0.32 + 0.55 * t);
+    let grad = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r);
+    grad.addColorStop(0, '#fffbe0');
+    grad.addColorStop(0.3, '#ffe066');
+    grad.addColorStop(0.7, '#ff9900');
+    grad.addColorStop(1, 'rgba(255,60,0,0)');
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.shadowColor = '#fffbe0';
+    ctx.shadowBlur = 18 + 22 * (1 - t);
+    ctx.fill();
+
+    // Blue sparks
+    for (let i = 0; i < 7; ++i) {
+      let ang = (i / 7) * Math.PI * 2 + t * 2;
+      let rr = r * (0.7 + 0.5 * Math.sin(t * 8 + i));
+      ctx.save();
+      ctx.globalAlpha = 0.5 * (1 - t);
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(ang) * rr, cy + Math.sin(ang) * rr, 6 + 8 * (1 - t), 0, Math.PI * 2);
+      ctx.fillStyle = '#6df';
+      ctx.shadowColor = '#fff';
+      ctx.shadowBlur = 8;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Debris
+    for (let i = 0; i < 8; ++i) {
+      let ang = (i / 8) * Math.PI * 2 + t * 3;
+      let rr = r * (0.9 + 0.7 * t) * (1 + 0.2 * Math.sin(i * 2 + t * 7));
+      ctx.save();
+      ctx.globalAlpha = 0.4 * (1 - t);
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(ang) * rr, cy + Math.sin(ang) * rr, 3 + 2 * (1 - t), 0, Math.PI * 2);
+      ctx.fillStyle = '#ffb300';
+      ctx.shadowColor = '#fffbe0';
+      ctx.shadowBlur = 4;
+      ctx.fill();
+      ctx.restore();
+    }
     ctx.restore();
   },
 

@@ -31,10 +31,11 @@ window.Player = class Player {
   constructor(game) {
     this.game = game;
     this.x = 150;
-    this.y = 320;
     this.width = 52;
     this.height = 78;
-    this.groundY = 392;
+    // Set groundY to window.FLOOR_Y for correct alignment with ground
+    this.groundY = window.FLOOR_Y;
+    this.y = this.groundY - this.height;
     this.vx = 0;
     this.vy = 0;
     this.speed = 4.6;
@@ -77,17 +78,19 @@ window.Player = class Player {
   }
 
   update(input, dt) {
+    // Frame-rate independence: scale movement by dt/16.67, but scale durations/animation by dt only
+    const speedScale = dt / 16.67;
     if (this.dead) return;
     // Movement input
     let prevX = this.x;
     if (this.action !== 'attack') { // Do not interrupt attack animation
       if (input.left) {
-        this.x -= this.speed;
+        this.x -= this.speed * speedScale;
         this.facing = -1;
         if (this.onGround) this.action = 'walk';
       }
       if (input.right) {
-        this.x += this.speed;
+        this.x += this.speed * speedScale;
         this.facing = 1;
         if (this.onGround) this.action = 'walk';
       }
@@ -96,14 +99,14 @@ window.Player = class Player {
         this.walkFrame = 0;
       }
       if (input.jump && this.onGround) {
-        this.vy = this.jumpVel;
+        this.vy = this.jumpVel; // FIX: do not scale jump velocity by speedScale
         this.onGround = false;
         this.action = 'jump';
       }
     } else {
       // Still allow gravity/jump to work during attack in air
       if (!this.onGround && input.jump && this.vy > 0) {
-        this.vy = this.jumpVel;
+        this.vy = this.jumpVel; // FIX: do not scale jump velocity by speedScale
       }
     }
 
@@ -119,10 +122,10 @@ window.Player = class Player {
 
     // Gravity
     if (!this.onGround) {
-      this.vy += this.gravity;
-      this.y += this.vy;
-      if (this.y >= this.groundY) {
-        this.y = this.groundY;
+      this.vy += this.gravity * speedScale;
+      this.y += this.vy * speedScale;
+      if (this.y >= this.groundY - this.height) {
+        this.y = this.groundY - this.height;
         this.vy = 0;
         this.onGround = true;
         if (this.action === 'jump') this.action = 'idle';
@@ -134,7 +137,7 @@ window.Player = class Player {
 
     // Animation
     if (this.action === 'walk') {
-      this.walkFrame += this.walkAnimSpeed;
+      this.walkFrame += this.walkAnimSpeed * speedScale;
       if (this.walkFrame >= this.walkFrameCount) this.walkFrame = 0;
     }
 
@@ -196,9 +199,21 @@ window.Player = class Player {
       const img = window.PlayerAttackFrames[Math.min(this.attackAnimFrame, this.attackAnimFramesCount - 1)];
       ctx.save();
       ctx.imageSmoothingEnabled = false;
+
+      // Indices of attack frames that are left-facing at the source (adjust as needed)
+      const leftFacingAttackFrames = [0, 1];
+
       if (this.facing === 1) {
-        ctx.drawImage(img, 0, 0, img.width, img.height, this.x, this.y, this.width, this.height);
+        // Facing right: mirror these two frames so all appear as right-facing
+        if (leftFacingAttackFrames.includes(this.attackAnimFrame)) {
+          ctx.translate(this.x + this.width, this.y);
+          ctx.scale(-1, 1);
+          ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, this.width, this.height);
+        } else {
+          ctx.drawImage(img, 0, 0, img.width, img.height, this.x, this.y, this.width, this.height);
+        }
       } else {
+        // Facing left: always mirror as usual (so right-facing source images appear left)
         ctx.translate(this.x + this.width, this.y);
         ctx.scale(-1, 1);
         ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, this.width, this.height);
@@ -261,7 +276,7 @@ window.Player = class Player {
       if (this.lives > 0) {
         this.health = this.maxHealth;
         this.x = 120;
-        this.y = this.groundY;
+        this.y = this.groundY - this.height;
       } else {
         this.dead = true;
         this.health = 0;
@@ -292,7 +307,12 @@ window.Enemy = class Enemy {
   constructor(game, x, y) {
     this.game = game;
     this.x = x;
-    this.y = y;
+    // PATCH: Ensure default flying enemies are above the ground, but not in the middle of the screen
+    if (typeof y === "undefined" || y === null) {
+      this.y = window.FLOOR_Y - 120;
+    } else {
+      this.y = y;
+    }
     this.width = 52;
     this.height = 78;
     this.health = 60;
@@ -307,59 +327,103 @@ window.Enemy = class Enemy {
     this.frameTimer = 0;
     this.frameIdx = Math.floor(Math.random() * window.SpriteLibrary.enemyFrames.length);
     this.colorIdx = Math.floor(Math.random() * window.SpriteLibrary.enemyFrames.length);
+
+    // --- NEW: Floating/AI state ---
+    this.state = 'float'; // 'float', 'targeting', 'zoom', 'cooldown', 'dead'
+    this.floatAngle = Math.random() * Math.PI * 2;
+    this.floatRadius = 32 + Math.random() * 32;
+    this.floatSpeed = 0.008 + Math.random() * 0.012;
+    this.targetCooldown = 800 + Math.random() * 1200;
+    this.targetX = this.x;
+    this.targetY = this.y;
+    this.zoomVX = 0;
+    this.zoomVY = 0;
+    this.zoomTime = 0;
+
+    // --- Explosion animation ---
+    this.exploding = false;
+    this.explosionTime = 0;
+    this.explosionDuration = 520; // ms
   }
 
   update(dt, player) {
-    if (!this.alive) return;
+    if (!this.alive && !this.exploding) return;
 
-    // Dash logic: randomly dash at player if cooldown allows
-    if (!this.dashing && this.dashCooldown <= 0 && Math.random() < 0.008) {
-      let dx = player.x - this.x;
-      let dy = player.y - this.y;
-      let dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 320 && Math.abs(dy) < 60) {
-        this.dashing = true;
-        this.dashTime = 18 + Math.floor(Math.random() * 8);
-        this.dashDir = dx > 0 ? 1 : -1;
+    // --- EXPLOSION ANIMATION ---
+    if (this.exploding) {
+      this.explosionTime += dt;
+      if (this.explosionTime >= this.explosionDuration) {
+        this.exploding = false;
       }
+      return;
     }
 
-    if (this.dashing) {
-      this.x += this.dashDir * this.dashSpeed;
-      this.dashTime--;
-      // Dash collision check with player
+    // --- AI STATE MACHINE ---
+    if (this.state === 'float') {
+      // Float in a loose circle
+      this.floatAngle += this.floatSpeed * dt;
+      this.x += Math.cos(this.floatAngle) * 0.7;
+      this.y += Math.sin(this.floatAngle) * 0.5;
+      // Clamp inside screen
+      this.x = window.Utils.clamp(this.x, 0, this.game.width - this.width);
+      this.y = window.Utils.clamp(this.y, 40, this.game.height - this.height - 120);
+
+      this.targetCooldown -= dt;
+      if (this.targetCooldown <= 0) {
+        this.state = 'targeting';
+        this.targetCooldown = 800 + Math.random() * 1200;
+      }
+    } else if (this.state === 'targeting') {
+      // Move toward player center
+      let px = player.x + player.width / 2;
+      let py = player.y + player.height / 2;
+      let dx = px - (this.x + this.width / 2);
+      let dy = py - (this.y + this.height / 2);
+      let dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 8) {
+        this.x += (dx / dist) * this.speed * (dt / 16.67);
+        this.y += (dy / dist) * this.speed * (dt / 16.67);
+      } else {
+        // Once close, zoom at player
+        this.state = 'zoom';
+        let dzx = px - (this.x + this.width / 2);
+        let dzy = py - (this.y + this.height / 2);
+        let dzdist = Math.sqrt(dzx * dzx + dzy * dzy);
+        this.zoomVX = (dzx / dzdist) * (7.5 + Math.random() * 2.5);
+        this.zoomVY = (dzy / dzdist) * (7.5 + Math.random() * 2.5);
+        this.zoomTime = 0;
+      }
+    } else if (this.state === 'zoom') {
+      // Zoom at player for a short burst
+      this.x += this.zoomVX * (dt / 16.67);
+      this.y += this.zoomVY * (dt / 16.67);
+      this.zoomTime += dt;
+      // Clamp inside screen
+      this.x = window.Utils.clamp(this.x, 0, this.game.width - this.width);
+      this.y = window.Utils.clamp(this.y, 40, this.game.height - this.height - 120);
+
+      // Collision with player
       let dx = (this.x + this.width / 2) - (player.x + player.width / 2);
       let dy = (this.y + this.height / 2) - (player.y + player.height / 2);
       let dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 44 && !player.invincible) {
+      if (dist < this.attackRange && !player.invincible) {
         player.takeDamage(this.damage + 16);
-        this.x += this.dashDir * 44;
-        this.dashing = false;
-        this.dashCooldown = 800 + Math.random() * 700;
+        this.state = 'cooldown';
+        this.targetCooldown = 900 + Math.random() * 700;
+      } else if (this.zoomTime > 340 + Math.random() * 120) {
+        this.state = 'cooldown';
+        this.targetCooldown = 900 + Math.random() * 700;
       }
-      if (this.dashTime <= 0) {
-        this.dashing = false;
-        this.dashCooldown = 800 + Math.random() * 700;
-      }
-    } else {
-      // Move towards player if not dashing
-      let dx = player.x - this.x;
-      let dy = player.y - this.y;
-      if (Math.abs(dx) > 12) {
-        this.x += Math.sign(dx) * this.speed;
-      }
-      // Optional: vertical movement (keep on ground)
-      if (Math.abs(dy) > 14) {
-        this.y += Math.sign(dy) * (this.speed * 0.66);
-      }
-      if (this.dashCooldown > 0) {
-        this.dashCooldown -= dt;
+    } else if (this.state === 'cooldown') {
+      // Drift slowly
+      this.x += Math.cos(this.floatAngle) * 0.5;
+      this.y += Math.sin(this.floatAngle) * 0.3;
+      this.targetCooldown -= dt;
+      if (this.targetCooldown <= 0) {
+        this.state = 'float';
+        this.targetCooldown = 800 + Math.random() * 1200;
       }
     }
-
-    // Clamp inside screen
-    this.x = window.Utils.clamp(this.x, 0, this.game.width - this.width);
-    this.y = window.Utils.clamp(this.y, 0, this.game.height - this.height);
 
     // Animation frame update
     this.frameTimer += dt;
@@ -370,21 +434,24 @@ window.Enemy = class Enemy {
   }
 
   render(ctx) {
+    // --- EXPLOSION EFFECT ---
+    if (this.exploding) {
+      window.SpriteLibrary.enemyExplosion(
+        ctx,
+        this.x + this.width / 2,
+        this.y + this.height / 2,
+        this.width,
+        this.height,
+        this.explosionTime / this.explosionDuration
+      );
+      return;
+    }
+    if (!this.alive) return;
+
     // Example: use enemy sprite frame
     let frameIdx = this.frameIdx;
     window.SpriteLibrary.enemyFrames[frameIdx](ctx, this.x, this.y, this.width, this.height, frameIdx);
-    // Dashing effect
-    if (this.dashing) {
-      ctx.save();
-      ctx.globalAlpha = 0.22;
-      ctx.beginPath();
-      ctx.ellipse(this.x + this.width / 2, this.y + this.height * 0.7, this.width * 0.7, this.height * 0.27, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffe066';
-      ctx.shadowColor = '#fff';
-      ctx.shadowBlur = 14;
-      ctx.fill();
-      ctx.restore();
-    }
+
     // Health bar
     if (this.alive && this.health < 60) {
       ctx.save();
@@ -400,9 +467,12 @@ window.Enemy = class Enemy {
   }
 
   takeDamage(amount) {
+    if (!this.alive) return;
     this.health -= amount;
     if (this.health <= 0) {
       this.alive = false;
+      this.exploding = true;
+      this.explosionTime = 0;
     }
   }
 };

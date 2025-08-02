@@ -1,5 +1,6 @@
-window.GAME_WIDTH = 760;
-window.GAME_HEIGHT = 420;
+// Update game dimensions to match actual canvas size in game.js (1280x720)
+window.GAME_WIDTH = 1280;
+window.GAME_HEIGHT = 720;
 
 // The background image is drawn to exactly GAME_HEIGHT.
 // The visible "ground" is at the bottom of the image, so FLOOR_Y should be set so
