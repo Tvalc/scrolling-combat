@@ -17,6 +17,17 @@ window.UI.drawHUD = function(game) {
   ctx.fillText(`Health: ${game.player.health}/${game.player.maxHealth}`, 24, 21);
   ctx.font = "bold 22px Arial";
   ctx.fillText("Lives: " + game.player.lives, 18, 48);
+
+  // --- NEW: Draw Level/Stage/Wave Info in upper left below HUD ---
+  ctx.font = "bold 16px Arial";
+  ctx.fillStyle = "#ffe066";
+  // Fallback values if undefined
+  const level = (typeof game.level !== "undefined") ? game.level + 1 : 1;
+  const stage = (typeof game.stage !== "undefined") ? game.stage + 1 : 1;
+  const wave = (typeof game.wave !== "undefined") ? game.wave + 1 : 1;
+
+  ctx.fillText(`Level ${level}  -  Stage ${stage}  -  Wave ${wave}`, 18, 78);
+
   ctx.restore();
 };
 
