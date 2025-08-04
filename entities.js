@@ -301,6 +301,17 @@ window.Player = class Player {
       ctx.fill();
       ctx.restore();
     }
+
+    // --- PLAYER HEALTH BAR (RED) ---
+    ctx.save();
+    ctx.fillStyle = '#222';
+    ctx.fillRect(this.x + 6, this.y - 16, this.width - 12, 8);
+    ctx.fillStyle = '#e53935';
+    ctx.fillRect(this.x + 6, this.y - 16, ((this.health / this.maxHealth) * (this.width - 12)), 8);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(this.x + 6, this.y - 16, this.width - 12, 8);
+    ctx.restore();
   }
 
   takeDamage(amount) {
