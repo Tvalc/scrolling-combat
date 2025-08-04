@@ -194,29 +194,50 @@ window.Player = class Player {
   }
 
   render(ctx) {
+    // Use a single scaling constant for all player animations
+    const PLAYER_ANIM_SCALE = 0.5;
+
     // === Attack Animation Render ===
     if (this.action === 'attack') {
       const img = window.PlayerAttackFrames[Math.min(this.attackAnimFrame, this.attackAnimFramesCount - 1)];
       ctx.save();
       ctx.imageSmoothingEnabled = false;
-
       // Indices of attack frames that are left-facing at the source (adjust as needed)
       const leftFacingAttackFrames = [0, 1];
 
+      // Uniform scaling and centering for all attack frames
+      const scaledW = this.width * PLAYER_ANIM_SCALE;
+      const scaledH = this.height * PLAYER_ANIM_SCALE;
       if (this.facing === 1) {
         // Facing right: mirror these two frames so all appear as right-facing
         if (leftFacingAttackFrames.includes(this.attackAnimFrame)) {
           ctx.translate(this.x + this.width, this.y);
           ctx.scale(-1, 1);
-          ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, this.width, this.height);
+          ctx.drawImage(
+            img,
+            0, 0, img.width, img.height,
+            (this.width - scaledW) / 2, (this.height - scaledH) / 2,
+            scaledW, scaledH
+          );
         } else {
-          ctx.drawImage(img, 0, 0, img.width, img.height, this.x, this.y, this.width, this.height);
+          ctx.drawImage(
+            img,
+            0, 0, img.width, img.height,
+            this.x + (this.width - scaledW) / 2,
+            this.y + (this.height - scaledH) / 2,
+            scaledW, scaledH
+          );
         }
       } else {
         // Facing left: always mirror as usual (so right-facing source images appear left)
         ctx.translate(this.x + this.width, this.y);
         ctx.scale(-1, 1);
-        ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, this.width, this.height);
+        ctx.drawImage(
+          img,
+          0, 0, img.width, img.height,
+          (this.width - scaledW) / 2, (this.height - scaledH) / 2,
+          scaledW, scaledH
+        );
       }
       ctx.restore();
     } else if (!this.onGround) {
@@ -224,12 +245,26 @@ window.Player = class Player {
       const img = window.PlayerJumpFrames[this.jumpAnimFrame];
       ctx.save();
       ctx.imageSmoothingEnabled = false;
+      // Uniform scaling and centering for jump frames
+      const scaledW = this.width * PLAYER_ANIM_SCALE;
+      const scaledH = this.height * PLAYER_ANIM_SCALE;
       if (this.facing === 1) {
-        ctx.drawImage(img, 0, 0, img.width, img.height, this.x, this.y, this.width, this.height);
+        ctx.drawImage(
+          img,
+          0, 0, img.width, img.height,
+          this.x + (this.width - scaledW) / 2,
+          this.y + (this.height - scaledH) / 2,
+          scaledW, scaledH
+        );
       } else {
         ctx.translate(this.x + this.width, this.y);
         ctx.scale(-1, 1);
-        ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, this.width, this.height);
+        ctx.drawImage(
+          img,
+          0, 0, img.width, img.height,
+          (this.width - scaledW) / 2, (this.height - scaledH) / 2,
+          scaledW, scaledH
+        );
       }
       ctx.restore();
     } else {
@@ -448,7 +483,7 @@ window.Enemy = class Enemy {
     }
     if (!this.alive) return;
 
-    // Example: use enemy sprite frame
+    // Example: use enemy sprite frame (with 50% scale handled in sprites.js)
     let frameIdx = this.frameIdx;
     window.SpriteLibrary.enemyFrames[frameIdx](ctx, this.x, this.y, this.width, this.height, frameIdx);
 
@@ -478,6 +513,7 @@ window.Enemy = class Enemy {
 };
 
 // == Powerup Entity ==
+
 window.Powerup = class Powerup {
   constructor(game, x, y, type) {
     this.game = game;

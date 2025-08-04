@@ -19,8 +19,8 @@ const playerWalkLeftImages = [
   preloadImage("https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Coop_Walk_L_8_1753895628385.png")
 ];
 
-// === PLAYER SPRITE SCALING FOR IDLE/WALK ===
-const PLAYER_IDLE_WALK_SCALE = 0.75; // 75% of original size for visual match
+// === PLAYER SPRITE SCALING FOR ALL PLAYER ANIMATIONS ===
+const PLAYER_ANIM_SCALE = 0.5; // 50% of original size
 
 // ----------------------
 // === ENEMY 2 (DoomShroom) WALK FRAMES ===
@@ -32,14 +32,17 @@ const doomShroomWalkImages = [
   preloadImage('https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/DooomShroom_Walk_11_1754073404717.png')
 ];
 
+// === FLYING ENEMY SPRITE SCALING ===
+const FLYING_ENEMY_SCALE = 0.5; // 50% of original size
+
 window.SpriteLibrary = {
   // === PLAYER ANIMATION: Use image sprites with consistent scaling ===
   playerWalkLeft: playerWalkLeftImages.map(img => {
     return function(ctx, x, y, w, h, frame) {
       ctx.save();
       ctx.imageSmoothingEnabled = false;
-      const scaledW = w * PLAYER_IDLE_WALK_SCALE;
-      const scaledH = h * PLAYER_IDLE_WALK_SCALE;
+      const scaledW = w * PLAYER_ANIM_SCALE;
+      const scaledH = h * PLAYER_ANIM_SCALE;
       // Center the scaled image at (x, y)
       ctx.drawImage(
         img,
@@ -58,8 +61,8 @@ window.SpriteLibrary = {
       ctx.translate(x + w, y);
       ctx.scale(-1, 1);
       ctx.imageSmoothingEnabled = false;
-      const scaledW = w * PLAYER_IDLE_WALK_SCALE;
-      const scaledH = h * PLAYER_IDLE_WALK_SCALE;
+      const scaledW = w * PLAYER_ANIM_SCALE;
+      const scaledH = h * PLAYER_ANIM_SCALE;
       ctx.drawImage(
         img,
         (w - scaledW) / 2,
@@ -71,7 +74,7 @@ window.SpriteLibrary = {
     };
   }),
 
-  // === ENEMY ANIMATION: Use enemy ship images ===
+  // === ENEMY ANIMATION: Use enemy ship images with scaling for flying enemies ===
   enemyFrames: [
     preloadImage("https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Enemy_Ship_1_1753824654660.png"),
     preloadImage("https://dcnmwoxzefwqmvvkpqap.supabase.co/storage/v1/object/public/sprite-studio-exports/0f84fe06-5c42-40c3-b563-1a28d18f37cc/library/Enemy_Ship_2_1753824672446.png"),
@@ -87,7 +90,9 @@ window.SpriteLibrary = {
     const fn = function(ctx, x, y, w, h, frame) {
       ctx.save();
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(img, x, y, w, h);
+      const scaledW = w * FLYING_ENEMY_SCALE;
+      const scaledH = h * FLYING_ENEMY_SCALE;
+      ctx.drawImage(img, x + (w - scaledW) / 2, y + (h - scaledH) / 2, scaledW, scaledH);
       ctx.restore();
     };
     fn.img = img;

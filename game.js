@@ -273,6 +273,8 @@ window.GameManager = class GameManager {
     // Enemies
     for (let enemy of this.enemies) {
       if (enemy.alive) enemy.update(dt, this.player);
+      // Allow explosion animation to update even if !alive (for Enemy, not GroundJumperEnemy)
+      if (enemy.exploding) enemy.update(dt, this.player);
     }
 
     // Powerups
@@ -333,6 +335,9 @@ window.GameManager = class GameManager {
       }
     }
     this.powerups = this.powerups.filter(p=>p.alive);
+
+    // Remove enemies that are neither alive nor exploding (fixes explosion cloud lingering)
+    this.enemies = this.enemies.filter(e => e.alive || e.exploding);
 
     // Enemies defeated check
     let living = this.enemies.filter(e=>e.alive).length;
