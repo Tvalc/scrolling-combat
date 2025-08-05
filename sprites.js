@@ -20,7 +20,7 @@ const playerWalkLeftImages = [
 ];
 
 // === PLAYER SPRITE SCALING FOR ALL PLAYER ANIMATIONS ===
-const PLAYER_ANIM_SCALE = 0.5; // 50% of original size
+// Remove PLAYER_ANIM_SCALE for player animations - all player animation drawing should use full logical size (w, h)
 
 // ----------------------
 // === ENEMY 2 (DoomShroom) WALK FRAMES ===
@@ -36,21 +36,12 @@ const doomShroomWalkImages = [
 const FLYING_ENEMY_SCALE = 0.5; // 50% of original size
 
 window.SpriteLibrary = {
-  // === PLAYER ANIMATION: Use image sprites with consistent scaling ===
+  // === PLAYER ANIMATION: Use image sprites with NO scaling (draw at w × h) ===
   playerWalkLeft: playerWalkLeftImages.map(img => {
     return function(ctx, x, y, w, h, frame) {
       ctx.save();
       ctx.imageSmoothingEnabled = false;
-      const scaledW = w * PLAYER_ANIM_SCALE;
-      const scaledH = h * PLAYER_ANIM_SCALE;
-      // Center the scaled image at (x, y)
-      ctx.drawImage(
-        img,
-        x + (w - scaledW) / 2,
-        y + (h - scaledH) / 2,
-        scaledW,
-        scaledH
-      );
+      ctx.drawImage(img, x, y, w, h);
       ctx.restore();
     };
   }),
@@ -61,15 +52,7 @@ window.SpriteLibrary = {
       ctx.translate(x + w, y);
       ctx.scale(-1, 1);
       ctx.imageSmoothingEnabled = false;
-      const scaledW = w * PLAYER_ANIM_SCALE;
-      const scaledH = h * PLAYER_ANIM_SCALE;
-      ctx.drawImage(
-        img,
-        (w - scaledW) / 2,
-        (h - scaledH) / 2,
-        scaledW,
-        scaledH
-      );
+      ctx.drawImage(img, 0, 0, w, h);
       ctx.restore();
     };
   }),

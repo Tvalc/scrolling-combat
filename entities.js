@@ -194,8 +194,7 @@ window.Player = class Player {
   }
 
   render(ctx) {
-    // Use a single scaling constant for all player animations
-    const PLAYER_ANIM_SCALE = 0.5;
+    // === All player animations: draw at full logical size (no scaling) ===
 
     // === Attack Animation Render ===
     if (this.action === 'attack') {
@@ -205,9 +204,6 @@ window.Player = class Player {
       // Indices of attack frames that are left-facing at the source (adjust as needed)
       const leftFacingAttackFrames = [0, 1];
 
-      // Uniform scaling and centering for all attack frames
-      const scaledW = this.width * PLAYER_ANIM_SCALE;
-      const scaledH = this.height * PLAYER_ANIM_SCALE;
       if (this.facing === 1) {
         // Facing right: mirror these two frames so all appear as right-facing
         if (leftFacingAttackFrames.includes(this.attackAnimFrame)) {
@@ -216,16 +212,16 @@ window.Player = class Player {
           ctx.drawImage(
             img,
             0, 0, img.width, img.height,
-            (this.width - scaledW) / 2, (this.height - scaledH) / 2,
-            scaledW, scaledH
+            0, 0,
+            this.width, this.height
           );
         } else {
           ctx.drawImage(
             img,
             0, 0, img.width, img.height,
-            this.x + (this.width - scaledW) / 2,
-            this.y + (this.height - scaledH) / 2,
-            scaledW, scaledH
+            this.x,
+            this.y,
+            this.width, this.height
           );
         }
       } else {
@@ -235,8 +231,8 @@ window.Player = class Player {
         ctx.drawImage(
           img,
           0, 0, img.width, img.height,
-          (this.width - scaledW) / 2, (this.height - scaledH) / 2,
-          scaledW, scaledH
+          0, 0,
+          this.width, this.height
         );
       }
       ctx.restore();
@@ -245,16 +241,13 @@ window.Player = class Player {
       const img = window.PlayerJumpFrames[this.jumpAnimFrame];
       ctx.save();
       ctx.imageSmoothingEnabled = false;
-      // Uniform scaling and centering for jump frames
-      const scaledW = this.width * PLAYER_ANIM_SCALE;
-      const scaledH = this.height * PLAYER_ANIM_SCALE;
       if (this.facing === 1) {
         ctx.drawImage(
           img,
           0, 0, img.width, img.height,
-          this.x + (this.width - scaledW) / 2,
-          this.y + (this.height - scaledH) / 2,
-          scaledW, scaledH
+          this.x,
+          this.y,
+          this.width, this.height
         );
       } else {
         ctx.translate(this.x + this.width, this.y);
@@ -262,8 +255,8 @@ window.Player = class Player {
         ctx.drawImage(
           img,
           0, 0, img.width, img.height,
-          (this.width - scaledW) / 2, (this.height - scaledH) / 2,
-          scaledW, scaledH
+          0, 0,
+          this.width, this.height
         );
       }
       ctx.restore();
@@ -301,17 +294,6 @@ window.Player = class Player {
       ctx.fill();
       ctx.restore();
     }
-
-    // --- PLAYER HEALTH BAR (RED) ---
-    ctx.save();
-    ctx.fillStyle = '#222';
-    ctx.fillRect(this.x + 6, this.y - 16, this.width - 12, 8);
-    ctx.fillStyle = '#e53935';
-    ctx.fillRect(this.x + 6, this.y - 16, ((this.health / this.maxHealth) * (this.width - 12)), 8);
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(this.x + 6, this.y - 16, this.width - 12, 8);
-    ctx.restore();
   }
 
   takeDamage(amount) {
